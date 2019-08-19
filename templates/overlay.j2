@@ -1,0 +1,78 @@
+! Configuration for VRF {{ overlay.vrf_name }}
+! L3 overlay VNI id {{ overlay.vni }}
+! Interfaces enabled in VRF: 
+{% for int in overlay.interfaces %}
+!     Vlan{{ int.id }}  ({{int.description}})
+{% endfor %}
+!
+
+! Layer 3 VPN PE VRF configuration:
+vrf context {{ overlay.vrf_name }}
+  !description 
+  vni {{ overlay.vni }}
+  rd {{ globals.asn }}:{{ overlay.vni }}
+  address-family ipv4 unicast
+    route-target import {{ globals.asn }}:{{ overlay.vni }}
+    route-target import {{ globals.asn }}:{{ overlay.vni }} evpn
+    route-target export {{ globals.asn }}:{{ overlay.vni }}
+    route-target export {{ globals.asn }}:{{ overlay.vni }} evpn
+
+! Layer 2 instance required for VXLAN to VLAN routing interface (Tenant SVI):
+vlan {{ overlay.tenant_svi_id }}
+  name VRF_{{ overlay.vrf_name }}_TENANT_SVI
+  vn-segment {{ overlay.vni }}
+
+! Layer 3 interface required for VXLAN to VLAN routing (Tenant SVI):
+interface Vlan{{ overlay.tenant_svi_id }}
+  description VRF_{{ overlay.vrf_name }}_VNI{{ overlay.vni }}_tenant-SVI
+  no shutdown
+  mtu 9216
+  vrf member {{ overlay.vrf_name }}
+  no ip redirects
+  ip forward
+  no ipv6 redirects
+
+! Enabling VXLAN and VRF communication over interface NVE1:
+interface nve1
+  member vni {{ overlay.vni }} associate-vrf
+
+route-map REDIST_DIRECT_VNI{{ overlay.vni }} permit 10
+
+router bgp {{ globals.asn }}
+  vrf {{ overlay.vrf_name }}
+    address-family ipv4 unicast
+      redistribute direct route-map REDIST_DIRECT_VNI{{ overlay.vni }}
+
+{% for int in overlay.interfaces %}
+
+!
+! Start of L2+L3 configuration for Vlan{{ int.id }}
+!
+vlan {{ int.id }}
+  name {{ int.vlan_name }}
+  vn-segment {{ int.l2_vni }}
+
+evpn
+  vni {{ int.l2_vni }} l2
+    rd {{ globals.asn }}:{{ int.l2_vni }}
+    route-target import {{ globals.asn }}:{{ int.l2_vni }}
+    route-target export {{ globals.asn }}:{{ int.l2_vni }}
+
+interface nve1
+  member vni {{ int.l2_vni }}
+    suppress-arp
+    ingress-replication protocol bgp
+
+interface Vlan{{ int.id }}
+  description {{ int.description }} ({{ overlay.vrf_name }})
+  no shutdown
+  mtu 9216
+  vrf member {{ overlay.vrf_name }}
+  no ip redirects
+  ip address {{ int.anyc_ip }}/{{ int.mask }}
+  no ipv6 redirects
+  fabric forwarding mode anycast-gateway
+!
+! End of L2+L3 configuration for Vlan{{ int.id }}
+!
+{% endfor %}

@@ -1,0 +1,17 @@
+---
+
+- name: Merge template with data 
+  hosts: localhost
+  gather_facts: no
+
+  tasks:
+    - name: Include variables for configuration
+      include_vars:
+        dir: vars
+        ignore_unknown_extensions: True
+        extensions: ['', 'yaml', 'yml', 'json']
+          
+    - name: Merge template
+      template:
+        src: templates/overlay.j2
+        dest: "{{ 'overlay_' + overlay['vni']|string + '.nxos' }}"
