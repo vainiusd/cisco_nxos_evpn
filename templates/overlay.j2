@@ -2,7 +2,7 @@
 ! L3 overlay VNI id {{ overlay.vni }}
 ! Interfaces enabled in VRF: 
 {% for int in overlay.interfaces %}
-!     Vlan{{ int.id }}  ({{int.description}})
+!     Vlan{{ int.id }}  ({{int.description| default('No description')}})
 {% endfor %}
 !
 
@@ -16,6 +16,20 @@ vrf context {{ overlay.vrf_name }}
     route-target import {{ globals.asn }}:{{ overlay.vni }} evpn
     route-target export {{ globals.asn }}:{{ overlay.vni }}
     route-target export {{ globals.asn }}:{{ overlay.vni }} evpn
+!! Static routes
+!
+{% if overlay.routing is defined %}
+{% if overlay.routing.default_nh is defined %}
+!! DEFAULT route
+  ip route 0.0.0.0/0 {{ overlay.routing.default_nh }} name VNI{{ overlay.vni }}_DEFAULT
+{% endif %}
+{% if overlay.routing.static is defined %}
+{% for route in overlay.routing.static %}
+!! LPM routes
+  ip route {{ route.prefix }} {{ route.nh }} name VNI{{ overlay.vni }}_{{ route.name | default('NONAME')}}
+{% endfor %}
+{% endif %}
+{% endif %}
 
 ! Layer 2 instance required for VXLAN to VLAN routing interface (Tenant SVI):
 vlan {{ overlay.tenant_svi_id }}
@@ -26,7 +40,7 @@ vlan {{ overlay.tenant_svi_id }}
 interface Vlan{{ overlay.tenant_svi_id }}
   description VRF_{{ overlay.vrf_name }}_VNI{{ overlay.vni }}_tenant-SVI
   no shutdown
-  mtu 9216
+  mtu 9000
   vrf member {{ overlay.vrf_name }}
   no ip redirects
   ip forward
@@ -36,12 +50,16 @@ interface Vlan{{ overlay.tenant_svi_id }}
 interface nve1
   member vni {{ overlay.vni }} associate-vrf
 
-route-map REDIST_DIRECT_VNI{{ overlay.vni }} permit 10
+route-map REDIST_DIRECT_VNI{{ overlay.vni }} permit 100
+  exit
+route-map REDIST_STATIC_VNI{{ overlay.vni }} permit 100
+  exit
 
 router bgp {{ globals.asn }}
   vrf {{ overlay.vrf_name }}
     address-family ipv4 unicast
       redistribute direct route-map REDIST_DIRECT_VNI{{ overlay.vni }}
+      redistribute static route-map REDIST_STATIC_VNI{{ overlay.vni }}
 
 {% for int in overlay.interfaces %}
 
@@ -63,15 +81,17 @@ interface nve1
     suppress-arp
     ingress-replication protocol bgp
 
+{% if int.anyc_ip is defined %}
 interface Vlan{{ int.id }}
   description {{ int.description }} ({{ overlay.vrf_name }})
   no shutdown
-  mtu 9216
+  mtu 9000
   vrf member {{ overlay.vrf_name }}
   no ip redirects
   ip address {{ int.anyc_ip }}/{{ int.mask }}
   no ipv6 redirects
   fabric forwarding mode anycast-gateway
+{% endif %}
 !
 ! End of L2+L3 configuration for Vlan{{ int.id }}
 !
