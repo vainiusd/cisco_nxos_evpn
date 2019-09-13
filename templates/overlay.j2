@@ -1,98 +1,246 @@
-! Configuration for VRF {{ overlay.vrf_name }}
-! L3 overlay VNI id {{ overlay.vni }}
+#jinja2:lstrip_blocks: True
+{# 
+ Documentation
+ Steps:
+   1. Create a L3 context (VRF) for L3VNI overlay.
+    1.1. Create a VRF with RD/route-targets and L3VNI ID.
+    1.2. Add static/default routing if neccessary.
+    1.3. Attach the L3VNI to overlay fabric.
+    1.4. Create a L3VNI tenant routing SVI.
+    1.5. Provide VRF routing information to BGP EVPN.
+    1.6. Create unique L3 Loopbacks for each fabric network device in L3VNI.
+   2. Create a L2 segment (L2VNI), when vlan spans multiple locations.
+    2.1. Create VLANs with L2VNI IDs.
+    2.2. Create an EVPN L2VNI services.
+    2.3. Attach the L2VNI services to overlay fabric.
+   3. Create a L3 segment that is in L3VNI.
+    3.1. Create a L3 SVI.
+    3.2. Create a vPC pair BGP peering (optional)
+
+ #}
+
+{# 
+  #################################
+    1. Create a L3 context (VRF) for L3VNI overlay.
+    1.1. Create a VRF with RD/route-targets and L3VNI ID.
+  #################################
+#}
+{% if item.overlay.vrf_name is defined %}
+
+! Configuration for VRF {{ item.overlay.vrf_name }}
+! L3 overlay VNI id {{ item.overlay.l3vni }}
 ! Interfaces enabled in VRF: 
-{% for int in overlay.interfaces %}
-!     Vlan{{ int.id }}  ({{int.description| default('No description')}})
-{% endfor %}
+  {% if item.overlay.interfaces.vlan is defined %}
+    {% for int in item.overlay.interfaces.vlan %}
+!     VLAN{{ int.id }}  ({{ int.description| default('No description') }}) (L2VNI: {{ int.l2vni | default('No L2VNI') }})
+    {% endfor %}
+  {% endif %}
+  {% if item.overlay.interfaces.loopback is defined %}
+    {% for int in item.overlay.interfaces.loopback %}
+!     Loopback{{ int.id }}  ({{ int.description| default('No description') }}) on {{ int.leaf_name }}
+    {% endfor %}
+  {% endif %}
 !
 
 ! Layer 3 VPN PE VRF configuration:
-vrf context {{ overlay.vrf_name }}
+vrf context {{ item.overlay.vrf_name }}
   !description 
-  vni {{ overlay.vni }}
-  rd {{ globals.asn }}:{{ overlay.vni }}
+  vni {{ item.overlay.l3vni }}
+  rd {{ item.globals.asn }}:{{ item.overlay.l3vni }}
   address-family ipv4 unicast
-    route-target import {{ globals.asn }}:{{ overlay.vni }}
-    route-target import {{ globals.asn }}:{{ overlay.vni }} evpn
-    route-target export {{ globals.asn }}:{{ overlay.vni }}
-    route-target export {{ globals.asn }}:{{ overlay.vni }} evpn
-!! Static routes
-!
-{% if overlay.routing is defined %}
-{% if overlay.routing.default_nh is defined %}
+    route-target import {{ item.globals.asn }}:{{ item.overlay.l3vni }}
+    route-target import {{ item.globals.asn }}:{{ item.overlay.l3vni }} evpn
+    route-target export {{ item.globals.asn }}:{{ item.overlay.l3vni }}
+    route-target export {{ item.globals.asn }}:{{ item.overlay.l3vni }} evpn
+{# 
+  #################################
+    1.2. Add static/default routing if neccessary.
+  #################################
+#}
+  {% if item.overlay.routing is defined %}
+    {% if item.overlay.routing.default_nh is defined %}
 !! DEFAULT route
-  ip route 0.0.0.0/0 {{ overlay.routing.default_nh }} name VNI{{ overlay.vni }}_DEFAULT
-{% endif %}
-{% if overlay.routing.static is defined %}
-{% for route in overlay.routing.static %}
+  ip route 0.0.0.0/0 {{ item.overlay.routing.default_nh }} name VNI{{ item.overlay.l3vni }}_DEFAULT
+    {% endif %}
+    {% if item.overlay.routing.static is defined %}
+      {% for route in item.overlay.routing.static %}
 !! LPM routes
-  ip route {{ route.prefix }} {{ route.nh }} name VNI{{ overlay.vni }}_{{ route.name | default('NONAME')}}
-{% endfor %}
-{% endif %}
-{% endif %}
-
-! Layer 2 instance required for VXLAN to VLAN routing interface (Tenant SVI):
-vlan {{ overlay.tenant_svi_id }}
-  name VRF_{{ overlay.vrf_name }}_TENANT_SVI
-  vn-segment {{ overlay.vni }}
+  ip route {{ route.prefix }} {{ route.nh }} name VNI{{ item.overlay.l3vni }}_{{ route.name | default('NO_NAME')}}
+      {% endfor %}
+    {% endif %}
+  {% endif %}
+{# 
+  #################################
+    1.3. Attach the L3VNI to overlay fabric.
+  #################################
+ #}
+! Enabling VXLAN and VRF communication over interface NVE1:
+interface nve1
+  member vni {{ item.overlay.l3vni }} associate-vrf
+{#
+  #################################
+    1.4. Create a L3VNI tenant routing SVI.
+  #################################
+ #}
+! VLAN with l2vni same as l3vni required for VXLAN to VLAN routing interface (Tenant SVI):
+vlan {{ item.overlay.tenant_svi_id }}
+  name VRF_{{ item.overlay.vrf_name }}_TENANT_SVI
+  vn-segment {{ item.overlay.l3vni }}
 
 ! Layer 3 interface required for VXLAN to VLAN routing (Tenant SVI):
-interface Vlan{{ overlay.tenant_svi_id }}
-  description VRF_{{ overlay.vrf_name }}_VNI{{ overlay.vni }}_tenant-SVI
+interface Vlan{{ item.overlay.tenant_svi_id }}
+  description VRF_{{ item.overlay.vrf_name }}_VNI{{ item.overlay.l3vni }}_tenant-SVI
   no shutdown
   mtu 9000
-  vrf member {{ overlay.vrf_name }}
+  vrf member {{ item.overlay.vrf_name }}
   no ip redirects
   ip forward
   no ipv6 redirects
 
-! Enabling VXLAN and VRF communication over interface NVE1:
-interface nve1
-  member vni {{ overlay.vni }} associate-vrf
+{# 
+  #################################
+    1.5. Provide routing information to BGP EVPN.
+  #################################
+ #}
+! Dyanmic routing and routing policy configuration
 
-route-map REDIST_DIRECT_VNI{{ overlay.vni }} permit 100
+route-map REDIST_DIRECT_VNI{{ item.overlay.l3vni }} permit 100
   exit
-route-map REDIST_STATIC_VNI{{ overlay.vni }} permit 100
+route-map REDIST_STATIC_VNI{{ item.overlay.l3vni }} permit 100
   exit
 
-router bgp {{ globals.asn }}
-  vrf {{ overlay.vrf_name }}
+router bgp {{ item.globals.asn }}
+  vrf {{ item.overlay.vrf_name }}
     address-family ipv4 unicast
-      redistribute direct route-map REDIST_DIRECT_VNI{{ overlay.vni }}
-      redistribute static route-map REDIST_STATIC_VNI{{ overlay.vni }}
+      redistribute direct route-map REDIST_DIRECT_VNI{{ item.overlay.l3vni }}
+      redistribute static route-map REDIST_STATIC_VNI{{ item.overlay.l3vni }}
 
-{% for int in overlay.interfaces %}
-
+{# 
+  #################################
+    1.6. Create unique L3 Loopbacks for each fabric network device in L3VNI.
+  #################################
+#}
+  {% if item.overlay.interfaces.loopback is defined %}
+    {% for int in item.overlay.interfaces.loopback %}
+!
+! Start of L3 configuration for Loopback{{ int.id }} on {{ int.leaf_name }}
+!
+interface loopback {{ int.id }}
+      {% if int.description is defined %}
+  description {{ int.description }} ({{ item.overlay.vrf_name }})
+      {% endif %}
+  vrf member {{ item.overlay.vrf_name }}
+  ip address {{ int.ip | ipaddr('address') }}/32
+!
+! End of L3 configuration for Loopback{{ int.id }} on {{ int.leaf_name }}
+!
+    {% endfor %}
+  {% endif %}
+{% endif %}
+{# 
+  #################################
+    End of Section 1. Create a L3 context (VRF) for L3VNI overlay.
+  #################################
+#}
+{# 
+  #################################
+    2. Create L2 segments (L2VNI), when VLAN spans multiple locations.
+  #################################
+#}
+{% if item.overlay.interfaces.vlan is defined %}
+  {% for int in item.overlay.interfaces.vlan %}
 !
 ! Start of L2+L3 configuration for Vlan{{ int.id }}
 !
+{# 
+  #################################
+    2.1. Create VLANs (with L2VNI ID).
+  #################################
+#}
 vlan {{ int.id }}
   name {{ int.vlan_name }}
-  vn-segment {{ int.l2_vni }}
+{# If L2VNI required, additional configuration is created #}
+    {% if int.l2vni is defined %}
+! Start of L2VNI configuration
+  vn-segment {{ int.l2vni }}
 
+{# 
+  #################################
+    2.2. Create EVPN L2VNI services.
+  #################################
+#}
 evpn
-  vni {{ int.l2_vni }} l2
-    rd {{ globals.asn }}:{{ int.l2_vni }}
-    route-target import {{ globals.asn }}:{{ int.l2_vni }}
-    route-target export {{ globals.asn }}:{{ int.l2_vni }}
-
+  vni {{ int.l2vni }} l2
+    rd {{ item.globals.asn }}:{{ int.l2vni }}
+    route-target import {{ item.globals.asn }}:{{ int.l2vni }}
+    route-target export {{ item.globals.asn }}:{{ int.l2vni }}
+!
+{# 
+  #################################
+    2.3. Attach the L2VNI services to overlay fabric.
+  #################################
+#}
 interface nve1
-  member vni {{ int.l2_vni }}
+  member vni {{ int.l2vni }}
     suppress-arp
     ingress-replication protocol bgp
-
-{% if int.anyc_ip is defined %}
+    {% endif %}
+! End of L2VNI configuration
+{# 
+  #################################
+    End of Section 2. Create L2 segment (L2VNI)
+             when VLAN spans multiple locations.
+  #################################
+#}
+{# 
+  #################################
+    3. Create a L3 segment that is in L3VNI.
+    3.1. Create a L3 SVI.
+  #################################
+#}
+! Start of L3 intrface configuration
+    {% if (int.ip is defined) %}
 interface Vlan{{ int.id }}
-  description {{ int.description }} ({{ overlay.vrf_name }})
+      {% if int.description is defined %}
+  description {{ int.description }} ({{ item.overlay.vrf_name }})
+      {% endif %}
   no shutdown
   mtu 9000
-  vrf member {{ overlay.vrf_name }}
+  vrf member {{ item.overlay.vrf_name | default('NULL') }}
   no ip redirects
-  ip address {{ int.anyc_ip }}/{{ int.mask }}
+  ip address {{ int.ip }}/{{ int.mask }}
   no ipv6 redirects
+{# Anycast gw might be unnecessary if routed connectivity to fabric is used #}
+      {% if int.anyc is sameas true %}
   fabric forwarding mode anycast-gateway
-{% endif %}
+      {% endif %}
+! End of L3 intrface configuration
+{# 
+  #################################
+    3.2. Create a vPC pair BGP peering (optional).
+  #################################
+#}
+
+      {% if int.vpc_bgp_peer is defined %}
+! Start of VRF-lite BGP peer in vPC pair configuration
+router bgp {{ item.globals.asn }}
+  vrf {{ item.overlay.vrf_name | default('NULL') }}
+    router-id {{ int.ip }}
+    neighbor {{ int.vpc_bgp_peer }}
+      inherit peer VRF_LITE_VPC_PEER
+! End of VRF-lite BGP peer in vPC pair configuration
+      {% endif %}
+    {% endif %}
 !
 ! End of L2+L3 configuration for Vlan{{ int.id }}
 !
-{% endfor %}
+  {% endfor %}
+{% endif %}
+
+{# 
+  #################################
+    End of Section 3. Create a L3 segment that is in L3VNI.
+  #################################
+#}
+
+

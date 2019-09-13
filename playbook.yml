@@ -5,13 +5,21 @@
   gather_facts: no
 
   tasks:
+    - name: form vrf list
+      set_fact:
+        vrfs: []
+
     - name: Include variables for configuration
-      include_vars:
-        dir: vars
-        ignore_unknown_extensions: True
-        extensions: ['', 'yaml', 'yml', 'json']
+      set_fact:
+        vrfs: "{{ vrfs + [ lookup('file', item) | from_yaml ] }}"
+      with_fileglob:
+        - "vars/*.vrf"
           
     - name: Merge template
       template:
         src: templates/overlay.j2
-        dest: "{{ 'overlay_' + overlay['vni']|string + '.nxos' }}"
+        dest: "{{ 'overlay_' + item['overlay']['l3vni']|string + '.nxos' }}"
+      vars:
+        myTemplateVariable: item
+      with_items:
+        - "{{ vrfs }}"
