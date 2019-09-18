@@ -13,12 +13,12 @@
       set_fact:
         vrfs: "{{ vrfs + [ lookup('file', item) | from_yaml ] }}"
       with_fileglob:
-        - "vars/*.vrf"
+        - "vars/*.yml"
           
     - name: Merge template
       template:
         src: templates/overlay.j2
-        dest: "{{ 'overlay_' + item['overlay']['l3vni']|string + '.nxos' }}"
+        dest: "{{ 'overlay_' + item['overlay']['name']|string + '.nxos' }}"
       vars:
         myTemplateVariable: item
       with_items:

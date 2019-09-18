@@ -1,11 +1,9 @@
-# Global variables
-
-globals:
-  asn: [ASN]
-
 # Overlay variables for a single VRF
 overlay:
+  name: "[NAME]"
+  bgp_asn: [ASN]
   vrf_name: [VRF NAME]
+  description: "[VRF DESCRIPTION]"
   l3vni: [L3VNI]
   tenant_svi_id: [SVI_ID]
   routing:
@@ -13,19 +11,19 @@ overlay:
     static:
       - { prefix: "[PREFIX]", nh: [NEXTHOP], name: "[ROUTE_NAME]"}
 
-# Interfaces, attached to for a single VRF
-  interfaces:
-    vlan:
-      - id: [VLAN_ID]
-        l2vni: [L2VNI]
-        vlan_name: "[VLAN_NAME]"
-        ip: [IP_ADDRESS]
-        mask: [SUBNET_MASK]
-        anyc: [true/false]
-        description: "[L3_INT_DESCRIPTION]"
-        vpc_bgp_peer: [BGP_PEER_IP]
+leaf_switches:
+  SWITCH_NAME:
     loopback:
-      - id: [LOOP_ID]
-        description: "[L3_INT_DESCRIPTION]"
-        ip: [IP_ADDRESS]
-        leaf_name: [SWITCH_NAME]
+      id: [ID]
+      ip: [IP_ADDRESS]
+      description: "[L3_INT_DESCRIPTION]"
+    interfaces:
+      vlan:
+        ID:
+          l2vni: [L2VNI]
+          vlan_name: "[VLAN_NAME]"
+          ip: [IP_ADDRESS]
+          mask: [SUBNET_MASK]
+          anyc: [true/false]
+          description: "[L3_INT_DESCRIPTION]"
+          vpc_bgp_peer: [BGP_PEER_IP] 
