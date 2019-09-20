@@ -1,5 +1,5 @@
 #jinja2:lstrip_blocks: True
-{# 
+{#
  Template for Cisco NXOS BGP EVPN overlay service creation.
  Steps:
    1. Create a L3 context (VRF) for L3VNI overlay.
@@ -19,7 +19,7 @@
 
 
  #}
-{# 
+{#
   #################################
     1. Create a L3 context (VRF) for L3VNI overlay.
     1.1. Create a VRF with RD/route-targets and L3VNI ID.
@@ -27,15 +27,15 @@
 #}
 {% for leaf_name, leaf in item.leaf_switches.items() %}
 !  --------------------------------------------------------
-!  
+!
 !         Configuration for {{ leaf_name }}
-! 
+!
 !  --------------------------------------------------------
   {% if item.overlay.vrf_name is defined %}
 
 ! Configuration for VRF {{ item.overlay.vrf_name }}
 ! Overlay L3VNI: {{ item.overlay.l3vni }}
-! Interfaces enabled in VRF: 
+! Interfaces enabled in VRF:
     {% if leaf.interfaces.vlan  is defined %}
       {% for id, int in leaf.interfaces.vlan.items() %}
 !     VLAN{{ id }}  ({{ int.description| default('No description') }}) (L2VNI: {{ int.l2vni | default('No L2VNI') }})
@@ -56,7 +56,7 @@ vrf context {{ item.overlay.vrf_name }}
     route-target import {{ item.overlay.bgp_asn }}:{{ item.overlay.l3vni }} evpn
     route-target export {{ item.overlay.bgp_asn }}:{{ item.overlay.l3vni }}
     route-target export {{ item.overlay.bgp_asn }}:{{ item.overlay.l3vni }} evpn
-{# 
+{#
   #################################
     1.2. Add static/default routing if neccessary.
   #################################
@@ -64,16 +64,18 @@ vrf context {{ item.overlay.vrf_name }}
     {% if item.overlay.routing is defined %}
       {% if item.overlay.routing.default_nh is defined %}
 !! DEFAULT route
-  ip route 0.0.0.0/0 {{ item.overlay.routing.default_nh }} name VNI{{ item.overlay.l3vni }}_DEFAULT
+  ip route 0.0.0.0/0 {{ item.overlay.routing.default_nh }} name {{ item.overlay.vrf_name }}_DEFAULT
       {% endif %}
       {% if item.overlay.routing.static is defined %}
-        {% for route in item.overlay.routing.static %}
 !! LPM routes
-  ip route {{ route.prefix }} {{ route.nh }} name VNI{{ item.overlay.l3vni }}_{{ route.name | default('NO_NAME')}}
+        {% for route in item.overlay.routing.static %}
+          {% if (route.on_leaves is not defined) or (leaf_name in route.on_leaves) %}
+  ip route {{ route.prefix }} {{ route.nh }} name {{ item.overlay.vrf_name }}_{{ route.name | default('NO_NAME')}}
+          {% endif %}
         {% endfor %}
       {% endif %}
     {% endif %}
-{# 
+{#
   #################################
     1.3. Attach the L3VNI to overlay fabric.
   #################################
@@ -101,7 +103,7 @@ interface Vlan{{ item.overlay.tenant_svi_id }}
   ip forward
   no ipv6 redirects
 
-{# 
+{#
   #################################
     1.5. Provide routing information to BGP EVPN.
   #################################
@@ -118,7 +120,7 @@ router bgp {{ item.overlay.bgp_asn }}
       redistribute direct route-map REDIST_DIRECT_VNI{{ item.overlay.l3vni }}
       redistribute static route-map REDIST_STATIC_VNI{{ item.overlay.l3vni }}
 
-{# 
+{#
   #################################
     1.6. Create unique L3 Loopbacks for each fabric network device in L3VNI.
   #################################
@@ -138,12 +140,12 @@ interface loopback {{ leaf.loopback.id }}
 !
     {% endif %}
   {% endif %}
-{# 
+{#
   #################################
     End of Section 1. Create a L3 context (VRF) for L3VNI overlay.
   #################################
 #}
-{# 
+{#
   #################################
     2. Create L2 segments (L2VNI), when VLAN spans multiple locations.
   #################################
@@ -153,7 +155,7 @@ interface loopback {{ leaf.loopback.id }}
 !
 ! Start of L2+L3 configuration for Vlan{{ id }} on {{ leaf_name | default('No leaf name') }}
 !
-{# 
+{#
   #################################
     2.1. Create VLANs (with L2VNI ID).
   #################################
@@ -165,7 +167,7 @@ vlan {{ id }}
 ! Start of L2VNI configuration
   vn-segment {{ int.l2vni }}
 
-{# 
+{#
   #################################
     2.2. Create EVPN L2VNI services.
   #################################
@@ -176,7 +178,7 @@ evpn
     route-target import {{ item.overlay.bgp_asn }}:{{ int.l2vni }}
     route-target export {{ item.overlay.bgp_asn }}:{{ int.l2vni }}
 
-{# 
+{#
   #################################
     2.3. Attach the L2VNI services to overlay fabric.
   #################################
@@ -187,13 +189,13 @@ interface nve1
     ingress-replication protocol bgp
       {% endif %}
 ! End of L2VNI configuration
-{# 
+{#
   #################################
     End of Section 2. Create L2 segment (L2VNI)
              when VLAN spans multiple locations.
   #################################
 #}
-{# 
+{#
   #################################
     3. Create a L3 segment that is in L3VNI.
     3.1. Create a L3 SVI.
@@ -216,7 +218,7 @@ interface Vlan{{ id }}
   fabric forwarding mode anycast-gateway
         {% endif %}
 ! End of L3 intrface configuration
-{# 
+{#
   #################################
     3.2. Create a vPC pair BGP peering (optional).
   #################################
@@ -239,10 +241,8 @@ router bgp {{ item.overlay.bgp_asn }}
     {% endfor %}
   {% endif %}
 {% endfor %}
-{# 
+{#
   #################################
     End of Section 3. Create a L3 segment that is in L3VNI.
   #################################
 #}
-
-

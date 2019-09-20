@@ -9,7 +9,9 @@ overlay:
   routing:
     default_nh: [DEFAULT_GW_IP]
     static:
-      - { prefix: "[PREFIX]", nh: [NEXTHOP], name: "[ROUTE_NAME]"}
+      - { prefix: "[PREFIX]", nh: [NEXTHOP], name: "[ROUTE_NAME]",
+          on_leaves: [SWITCH_NAME, SWITCH_NAME]
+          }
 
 leaf_switches:
   SWITCH_NAME:
@@ -26,4 +28,4 @@ leaf_switches:
           mask: [SUBNET_MASK]
           anyc: [true/false]
           description: "[L3_INT_DESCRIPTION]"
-          vpc_bgp_peer: [BGP_PEER_IP] 
+          vpc_bgp_peer: [BGP_PEER_IP]
